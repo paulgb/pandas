@@ -19,7 +19,7 @@ from pandas.tests.test_series import assert_series_equal
 from pandas.tests.test_frame import assert_frame_equal
 from pandas import concat, Timestamp
 from pandas.util import py3compat
-
+from pandas.util.testing import assert_produces_warning
 
 try:
     import tables
@@ -171,7 +171,10 @@ class TestHDFStore(unittest.TestCase):
             df['datetime2']  = datetime.datetime(2001,1,3,0,0)
             df.ix[3:6,['obj1']] = np.nan
             df = df.consolidate().convert_objects()
-            store['df'] = df
+
+            with assert_produces_warning([PendingDeprecationWarning,
+                                          PerformanceWarning]):
+                store['df'] = df
 
             # make a random group in hdf space
             store._handle.createGroup(store._handle.root,'bah')
@@ -194,10 +197,10 @@ class TestHDFStore(unittest.TestCase):
             self.assert_('bar' not in store)
 
             # GH 2694
-            warnings.filterwarnings('ignore', category=tables.NaturalNameWarning)
-            store['node())'] = tm.makeDataFrame()
+            with tm.assert_produces_warning(expected_warning=tables.NaturalNameWarning):
+                store['node())'] = tm.makeDataFrame()
+
             self.assert_('node())' in store)
-            warnings.filterwarnings('always', category=tables.NaturalNameWarning)
 
     def test_versioning(self):
 
@@ -378,12 +381,11 @@ class TestHDFStore(unittest.TestCase):
         df = df.consolidate().convert_objects()
 
         with ensure_clean(self.path) as store:
-            _maybe_remove(store, 'df')
-            warnings.filterwarnings('ignore', category=PerformanceWarning)
-            store.put('df',df)
+            with assert_produces_warning([PendingDeprecationWarning,
+                                          PerformanceWarning]):
+                store.put('df',df)
             expected = store.get('df')
             tm.assert_frame_equal(expected,df)
-            warnings.filterwarnings('always', category=PerformanceWarning)
 
     def test_append(self):
 
@@ -405,12 +407,11 @@ class TestHDFStore(unittest.TestCase):
             tm.assert_frame_equal(store['df3'], df)
 
             # this is allowed by almost always don't want to do it
-            warnings.filterwarnings('ignore', category=tables.NaturalNameWarning)
-            _maybe_remove(store, '/df3 foo')
-            store.append('/df3 foo', df[:10])
-            store.append('/df3 foo', df[10:])
-            tm.assert_frame_equal(store['df3 foo'], df)
-            warnings.filterwarnings('always', category=tables.NaturalNameWarning)
+            with tm.assert_produces_warning(expected_warning=tables.NaturalNameWarning):
+                _maybe_remove(store, '/df3 foo')
+                store.append('/df3 foo', df[:10])
+                store.append('/df3 foo', df[10:])
+                tm.assert_frame_equal(store['df3 foo'], df)
 
             # panel
             wp = tm.makePanel()
@@ -585,15 +586,15 @@ class TestHDFStore(unittest.TestCase):
             expected = df.reindex(columns=['A'])
             tm.assert_frame_equal(expected, result)
 
-            # this isn't supported
-            self.assertRaises(TypeError, store.select, 'df1', (
-                    'columns=A', Term('index', '>', df.index[4])))
-
             # selection on the non-indexable
             result = store.select(
-                'df1', ('columns=A', Term('index', '=', df.index[0:4])))
+                'df1', ('columns=A', Term('index=df.index[0:4]')))
             expected = df.reindex(columns=['A'], index=df.index[0:4])
             tm.assert_frame_equal(expected, result)
+
+            # this isn't supported
+            self.assertRaises(TypeError, store.select, 'df1', (
+                    'columns=A', Term('index>df.index[4]')))
 
     def test_append_with_different_block_ordering(self):
 
@@ -832,7 +833,7 @@ class TestHDFStore(unittest.TestCase):
 
             # data column searching (with an indexable and a data_columns)
             result = store.select(
-                'df', [Term('B>0'), Term('index', '>', df.index[3])])
+                'df', [Term('B>0'), Term('index>df.index[3]')])
             df_new = df.reindex(index=df.index[4:])
             expected = df_new[df_new.B > 0]
             tm.assert_frame_equal(result, expected)
@@ -844,7 +845,7 @@ class TestHDFStore(unittest.TestCase):
             df_new['string'][5:6] = 'bar'
             _maybe_remove(store, 'df')
             store.append('df', df_new, data_columns=['string'])
-            result = store.select('df', [Term('string', '=', 'foo')])
+            result = store.select('df', [Term('string=foo')])
             expected = df_new[df_new.string == 'foo']
             tm.assert_frame_equal(result, expected)
 
@@ -890,14 +891,14 @@ class TestHDFStore(unittest.TestCase):
             _maybe_remove(store, 'df')
             store.append(
                 'df', df_new, data_columns=['A', 'B', 'string', 'string2'])
-            result = store.select('df', [Term('string', '=', 'foo'), Term(
+            result = store.select('df', [Term('string=foo'), Term(
                         'string2=foo'), Term('A>0'), Term('B<0')])
             expected = df_new[(df_new.string == 'foo') & (
                     df_new.string2 == 'foo') & (df_new.A > 0) & (df_new.B < 0)]
             tm.assert_frame_equal(result, expected)
 
             # yield an empty frame
-            result = store.select('df', [Term('string', '=', 'foo'), Term(
+            result = store.select('df', [Term('string=foo'), Term(
                         'string2=cool')])
             expected = df_new[(df_new.string == 'foo') & (
                     df_new.string2 == 'cool')]
@@ -1374,7 +1375,7 @@ class TestHDFStore(unittest.TestCase):
             assert_frame_equal(result,df)
 
             # select with tz aware
-            compare(store.select('df_tz',where=Term('A','>=',df.A[3])),df[df.A>=df.A[3]])
+            compare(store.select('df_tz',where=Term('A>=df.A[3]')),df[df.A>=df.A[3]])
 
             _maybe_remove(store, 'df_tz')
             df = DataFrame(dict(A = Timestamp('20130102',tz='US/Eastern'), B = Timestamp('20130103',tz='US/Eastern')),index=range(5))
@@ -1456,14 +1457,14 @@ class TestHDFStore(unittest.TestCase):
         with ensure_clean(self.path) as store:
 
             # non-existance
-            crit1 = Term('index', '>', 'foo')
+            crit1 = Term('index>foo')
             self.assertRaises(KeyError, store.remove, 'a', [crit1])
 
             # try to remove non-table (with crit)
             # non-table ok (where = None)
             wp = tm.makePanel()
             store.put('wp', wp, table=True)
-            store.remove('wp', [('minor_axis', ['A', 'D'])])
+            store.remove('wp', [("minor_axis=['A', 'D']")])
             rs = store.select('wp')
             expected = wp.reindex(minor_axis=['B', 'C'])
             tm.assert_panel_equal(rs, expected)
@@ -1495,7 +1496,7 @@ class TestHDFStore(unittest.TestCase):
 
             # group row removal
             date4 = wp.major_axis.take([0, 1, 2, 4, 5, 6, 8, 9, 10])
-            crit4 = Term('major_axis', date4)
+            crit4 = Term('major_axis=date4')
             store.put('wp3', wp, table=True)
             n = store.remove('wp3', where=[crit4])
             assert(n == 36)
@@ -1507,8 +1508,8 @@ class TestHDFStore(unittest.TestCase):
             store.put('wp', wp, table=True)
             date = wp.major_axis[len(wp.major_axis) // 2]
 
-            crit1 = Term('major_axis', '>', date)
-            crit2 = Term('minor_axis', ['A', 'D'])
+            crit1 = Term('major_axis>date')
+            crit2 = Term("minor_axis=['A', 'D']")
             n = store.remove('wp', where=[crit1])
 
             assert(n == 56)
@@ -1524,14 +1525,14 @@ class TestHDFStore(unittest.TestCase):
             store.put('wp2', wp, table=True)
 
             date1 = wp.major_axis[1:3]
-            crit1 = Term('major_axis', date1)
+            crit1 = Term('major_axis=date1')
             store.remove('wp2', where=[crit1])
             result = store.select('wp2')
             expected = wp.reindex(major_axis=wp.major_axis - date1)
             tm.assert_panel_equal(result, expected)
 
             date2 = wp.major_axis[5]
-            crit2 = Term('major_axis', date2)
+            crit2 = Term('major_axis=date2')
             store.remove('wp2', where=[crit2])
             result = store['wp2']
             expected = wp.reindex(
@@ -1539,7 +1540,7 @@ class TestHDFStore(unittest.TestCase):
             tm.assert_panel_equal(result, expected)
 
             date3 = [wp.major_axis[7], wp.major_axis[9]]
-            crit3 = Term('major_axis', date3)
+            crit3 = Term('major_axis=date3')
             store.remove('wp2', where=[crit3])
             result = store['wp2']
             expected = wp.reindex(
@@ -1549,9 +1550,39 @@ class TestHDFStore(unittest.TestCase):
             # corners
             store.put('wp4', wp, table=True)
             n = store.remove(
-                'wp4', where=[Term('major_axis', '>', wp.major_axis[-1])])
+                'wp4', where=[Term('major_axis>wp.major_axis[-1]')])
             result = store.select('wp4')
             tm.assert_panel_equal(result, wp)
+
+    def test_invalid_terms(self):
+
+        with ensure_clean(self.path) as store:
+
+            df = tm.makeTimeDataFrame()
+            df['string'] = 'foo'
+            df.ix[0:4,'string'] = 'bar'
+            wp = tm.makePanel()
+            store.append('df', df, data_columns=['string'])
+            store.put('wp', wp, table=True)
+
+            # some invalid terms
+            self.assertRaises(NameError, store.select, 'wp', "minor=['A', 'B']")
+            self.assertRaises(NameError, store.select, 'wp', ["index=['20121114']"])
+            self.assertRaises(NameError, store.select, 'wp', ["index=['20121114', '20121114']"])
+
+            # deprecations
+            with tm.assert_produces_warning(expected_warning=DeprecationWarning):
+                Term('index','==')
+
+            with tm.assert_produces_warning(expected_warning=DeprecationWarning):
+                Term('index', '>', 5)
+
+            self.assertRaises(TypeError, Term)
+
+            # more invalid
+            self.assertRaises(ValueError,  store.select, 'df','df.index[3]')
+            self.assertRaises(SyntaxError, store.select, 'df','index>')
+            self.assertRaises(ValueError,  store.select, 'wp', "major_axis<'20000108' & minor_axis['A', 'B']")
 
     def test_terms(self):
 
@@ -1562,49 +1593,50 @@ class TestHDFStore(unittest.TestCase):
             store.put('wp', wp, table=True)
             store.put('p4d', p4d, table=True)
 
-            # some invalid terms
-            terms = [
-                ['minor', ['A', 'B']],
-                ['index', ['20121114']],
-                ['index', ['20121114', '20121114']],
-                ]
-            for t in terms:
-                self.assertRaises(Exception, store.select, 'wp', t)
-
-            self.assertRaises(Exception, Term.__init__)
-            self.assertRaises(Exception, Term.__init__, 'blah')
-            self.assertRaises(Exception, Term.__init__, 'index')
-            self.assertRaises(Exception, Term.__init__, 'index', '==')
-            self.assertRaises(Exception, Term.__init__, 'index', '>', 5)
-
             # panel
             result = store.select('wp', [Term(
-                        'major_axis<20000108'), Term('minor_axis', '=', ['A', 'B'])])
+                        'major_axis<"20000108"'), Term("minor_axis=['A', 'B']")])
             expected = wp.truncate(after='20000108').reindex(minor=['A', 'B'])
             tm.assert_panel_equal(result, expected)
 
+            # with deprecation
+            with tm.assert_produces_warning(expected_warning=DeprecationWarning):
+                result = store.select('wp', [Term(
+                    'major_axis','<',"20000108"), Term("minor_axis=['A', 'B']")])
+                expected = wp.truncate(after='20000108').reindex(minor=['A', 'B'])
+                tm.assert_panel_equal(result, expected)
+
             # p4d
-            result = store.select('p4d', [Term('major_axis<20000108'),
-                                          Term('minor_axis', '=', ['A', 'B']),
-                                          Term('items', '=', ['ItemA', 'ItemB'])])
+            result = store.select('p4d', [Term('major_axis<"20000108"'),
+                                          Term("minor_axis=['A', 'B']"),
+                                          Term("items=['ItemA', 'ItemB']")])
             expected = p4d.truncate(after='20000108').reindex(
                 minor=['A', 'B'], items=['ItemA', 'ItemB'])
             tm.assert_panel4d_equal(result, expected)
 
-            # valid terms
+            # back compat invalid terms
             terms = [
                 dict(field='major_axis', op='>', value='20121114'),
-                ('major_axis', '20121114'),
-                ('major_axis', '>', '20121114'),
-                (('major_axis', ['20121114', '20121114']),),
-                ('major_axis', datetime.datetime(2012, 11, 14)),
+                [ dict(field='major_axis', op='>', value='20121114') ],
+                [ "minor_axis=['A','B']", dict(field='major_axis', op='>', value='20121114') ]
+                ]
+            for t in terms:
+                with tm.assert_produces_warning(expected_warning=DeprecationWarning):
+                    Term(t)
+
+            # valid terms
+            terms = [
+                ('major_axis=20121114'),
+                ('major_axis>20121114'),
+                (("major_axis=['20121114', '20121114']"),),
+                ('major_axis=datetime.datetime(2012, 11, 14)'),
                 'major_axis> 20121114',
                 'major_axis >20121114',
                 'major_axis > 20121114',
-                (('minor_axis', ['A', 'B']),),
-                (('minor_axis', ['A', 'B']),),
-                ((('minor_axis', ['A', 'B']),),),
-                (('items', ['ItemA', 'ItemB']),),
+                (("minor_axis=['A', 'B']"),),
+                (("minor_axis=['A', 'B']"),),
+                ((("minor_axis==['A', 'B']"),),),
+                (("items=['ItemA', 'ItemB']"),),
                 ('items=ItemA'),
                 ]
 
@@ -1614,8 +1646,8 @@ class TestHDFStore(unittest.TestCase):
 
             # valid for p4d only
             terms = [
-                (('labels', '=', ['l1', 'l2']),),
-                Term('labels', '=', ['l1', 'l2']),
+                (("labels=['l1', 'l2']"),),
+                Term("labels=['l1', 'l2']"),
                 ]
 
             for t in terms:
@@ -1701,9 +1733,8 @@ class TestHDFStore(unittest.TestCase):
         idx = [(0., 1.), (2., 3.), (4., 5.)]
         data = np.random.randn(30).reshape((3, 10))
         DF = DataFrame(data, index=idx, columns=col)
-        warnings.filterwarnings('ignore', category=PerformanceWarning)
-        self._check_roundtrip(DF, tm.assert_frame_equal)
-        warnings.filterwarnings('always', category=PerformanceWarning)
+        with tm.assert_produces_warning(expected_warning=PerformanceWarning):
+            self._check_roundtrip(DF, tm.assert_frame_equal)
 
     def test_index_types(self):
 
@@ -1711,26 +1742,25 @@ class TestHDFStore(unittest.TestCase):
 
         func = lambda l, r: tm.assert_series_equal(l, r, True, True, True)
 
-        warnings.filterwarnings('ignore', category=PerformanceWarning)
-        ser = Series(values, [0, 'y'])
-        self._check_roundtrip(ser, func)
-        warnings.filterwarnings('always', category=PerformanceWarning)
+        with tm.assert_produces_warning(expected_warning=PerformanceWarning):
+            ser = Series(values, [0, 'y'])
+            self._check_roundtrip(ser, func)
 
-        ser = Series(values, [datetime.datetime.today(), 0])
-        self._check_roundtrip(ser, func)
+        with tm.assert_produces_warning(expected_warning=PerformanceWarning):
+            ser = Series(values, [datetime.datetime.today(), 0])
+            self._check_roundtrip(ser, func)
 
-        ser = Series(values, ['y', 0])
-        self._check_roundtrip(ser, func)
+        with tm.assert_produces_warning(expected_warning=PerformanceWarning):
+            ser = Series(values, ['y', 0])
+            self._check_roundtrip(ser, func)
 
-        warnings.filterwarnings('ignore', category=PerformanceWarning)
-        ser = Series(values, [datetime.date.today(), 'a'])
-        self._check_roundtrip(ser, func)
-        warnings.filterwarnings('always', category=PerformanceWarning)
+        with tm.assert_produces_warning(expected_warning=PerformanceWarning):
+            ser = Series(values, [datetime.date.today(), 'a'])
+            self._check_roundtrip(ser, func)
 
-        warnings.filterwarnings('ignore', category=PerformanceWarning)
-        ser = Series(values, [1.23, 'b'])
-        self._check_roundtrip(ser, func)
-        warnings.filterwarnings('always', category=PerformanceWarning)
+        with tm.assert_produces_warning(expected_warning=PerformanceWarning):
+            ser = Series(values, [1.23, 'b'])
+            self._check_roundtrip(ser, func)
 
         ser = Series(values, [1, 1.53])
         self._check_roundtrip(ser, func)
@@ -1739,7 +1769,7 @@ class TestHDFStore(unittest.TestCase):
         self._check_roundtrip(ser, func)
 
         ser = Series(values, [datetime.datetime(
-                    2012, 1, 1), datetime.datetime(2012, 1, 2)])
+            2012, 1, 1), datetime.datetime(2012, 1, 2)])
         self._check_roundtrip(ser, func)
 
     def test_timeseries_preepoch(self):
@@ -1995,7 +2025,7 @@ class TestHDFStore(unittest.TestCase):
             _maybe_remove(store, 'wp')
             store.append('wp', wp)
             items = ['Item%03d' % i for i in xrange(80)]
-            result = store.select('wp', Term('items', items))
+            result = store.select('wp', Term('items=items'))
             expected = wp.reindex(items=items)
             tm.assert_panel_equal(expected, result)
 
@@ -2012,7 +2042,7 @@ class TestHDFStore(unittest.TestCase):
             tm.assert_frame_equal(expected, result)
 
             # equivalentsly
-            result = store.select('df', [('columns', ['A', 'B'])])
+            result = store.select('df', [("columns=['A', 'B']")])
             expected = df.reindex(columns=['A', 'B'])
             tm.assert_frame_equal(expected, result)
 
@@ -2045,7 +2075,8 @@ class TestHDFStore(unittest.TestCase):
             df = DataFrame(dict(ts=bdate_range('2012-01-01', periods=300), A=np.random.randn(300)))
             _maybe_remove(store, 'df')
             store.append('df', df, data_columns=['ts', 'A'])
-            result = store.select('df', [Term('ts', '>=', Timestamp('2012-02-01'))])
+
+            result = store.select('df', [Term("ts>=Timestamp('2012-02-01')")])
             expected = df[df.ts >= Timestamp('2012-02-01')]
             tm.assert_frame_equal(expected, result)
 
@@ -2072,7 +2103,7 @@ class TestHDFStore(unittest.TestCase):
             _maybe_remove(store, 'df_int')
             store.append('df_int', df)
             result = store.select(
-                'df_int', [Term("index<10"), Term("columns", "=", ["A"])])
+                'df_int', [Term("index<10"), Term("columns=['A']")])
             expected = df.reindex(index=list(df.index)[0:10],columns=['A'])
             tm.assert_frame_equal(expected, result)
 
@@ -2082,7 +2113,7 @@ class TestHDFStore(unittest.TestCase):
             _maybe_remove(store, 'df_float')
             store.append('df_float', df)
             result = store.select(
-                'df_float', [Term("index<10.0"), Term("columns", "=", ["A"])])
+                'df_float', [Term("index<10.0"), Term("columns=['A']")])
             expected = df.reindex(index=list(df.index)[0:10],columns=['A'])
             tm.assert_frame_equal(expected, result)
 
@@ -2098,30 +2129,30 @@ class TestHDFStore(unittest.TestCase):
             store.append('df', df, data_columns=['ts', 'A', 'B', 'users'])
 
             # regular select
-            result = store.select('df', [Term('ts', '>=', Timestamp('2012-02-01'))])
+            result = store.select('df', [Term("ts>=Timestamp('2012-02-01')")])
             expected = df[df.ts >= Timestamp('2012-02-01')]
             tm.assert_frame_equal(expected, result)
 
             # small selector
-            result = store.select('df', [Term('ts', '>=', Timestamp('2012-02-01')),Term('users',['a','b','c'])])
+            result = store.select('df', [Term("ts>=Timestamp('2012-02-01') & users=['a','b','c']")])
             expected = df[ (df.ts >= Timestamp('2012-02-01')) & df.users.isin(['a','b','c']) ]
             tm.assert_frame_equal(expected, result)
 
             # big selector along the columns
             selector = [ 'a','b','c' ] + [ 'a%03d' % i for i in xrange(60) ]
-            result = store.select('df', [Term('ts', '>=', Timestamp('2012-02-01')),Term('users',selector)])
+            result = store.select('df', [Term("ts>=Timestamp('2012-02-01')"),Term('users=selector')])
             expected = df[ (df.ts >= Timestamp('2012-02-01')) & df.users.isin(selector) ]
             tm.assert_frame_equal(expected, result)
 
             selector = range(100,200)
-            result = store.select('df', [Term('B', selector)])
+            result = store.select('df', [Term('B=selector')])
             expected = df[ df.B.isin(selector) ]
             tm.assert_frame_equal(expected, result)
             self.assert_(len(result) == 100)
 
             # big selector along the index
             selector = Index(df.ts[0:100].values)
-            result  = store.select('df', [Term('ts', selector)])
+            result  = store.select('df', [Term('ts=selector')])
             expected = df[ df.ts.isin(selector.values) ]
             tm.assert_frame_equal(expected, result)
             self.assert_(len(result) == 100)
@@ -2227,11 +2258,10 @@ class TestHDFStore(unittest.TestCase):
 
 
             # try to append a table with a different frequency
-            warnings.filterwarnings('ignore', category=AttributeConflictWarning)
-            df2 = DataFrame(dict(A = Series(xrange(3),
-                                            index=date_range('2002-1-1',periods=3,freq='D'))))
-            store.append('data',df2)
-            warnings.filterwarnings('always', category=AttributeConflictWarning)
+            with tm.assert_produces_warning(expected_warning=AttributeConflictWarning):
+                df2 = DataFrame(dict(A = Series(xrange(3),
+                                                index=date_range('2002-1-1',periods=3,freq='D'))))
+                store.append('data',df2)
 
             self.assert_(store.get_storer('data').info['index']['freq'] is None)
 
@@ -2247,12 +2277,12 @@ class TestHDFStore(unittest.TestCase):
 
         with tm.ensure_clean(self.path) as path:
 
-            warnings.filterwarnings('ignore', category=AttributeConflictWarning)
+            with tm.assert_produces_warning(expected_warning=AttributeConflictWarning):
 
-            df  = DataFrame(dict(A = Series(xrange(3), index=date_range('2000-1-1',periods=3,freq='H'))))
-            df.to_hdf(path,'data',mode='w',append=True)
-            df2 = DataFrame(dict(A = Series(xrange(3), index=date_range('2002-1-1',periods=3,freq='D'))))
-            df2.to_hdf(path,'data',append=True)
+                df  = DataFrame(dict(A = Series(xrange(3), index=date_range('2000-1-1',periods=3,freq='H'))))
+                df.to_hdf(path,'data',mode='w',append=True)
+                df2 = DataFrame(dict(A = Series(xrange(3), index=date_range('2002-1-1',periods=3,freq='D'))))
+                df2.to_hdf(path,'data',append=True)
 
             idx = date_range('2000-1-1',periods=3,freq='H')
             idx.name = 'foo'
@@ -2260,13 +2290,14 @@ class TestHDFStore(unittest.TestCase):
             df.to_hdf(path,'data',mode='w',append=True)
             self.assert_(read_hdf(path,'data').index.name == 'foo')
 
-            idx2 = date_range('2001-1-1',periods=3,freq='H')
-            idx2.name = 'bar'
-            df2 = DataFrame(dict(A = Series(xrange(3), index=idx2)))
-            df2.to_hdf(path,'data',append=True)
-            self.assert_(read_hdf(path,'data').index.name is None)
+            with tm.assert_produces_warning(expected_warning=AttributeConflictWarning):
 
-            warnings.filterwarnings('always', category=AttributeConflictWarning)
+                idx2 = date_range('2001-1-1',periods=3,freq='H')
+                idx2.name = 'bar'
+                df2 = DataFrame(dict(A = Series(xrange(3), index=idx2)))
+                df2.to_hdf(path,'data',append=True)
+
+            self.assert_(read_hdf(path,'data').index.name is None)
 
     def test_panel_select(self):
 
@@ -2276,15 +2307,15 @@ class TestHDFStore(unittest.TestCase):
             store.put('wp', wp, table=True)
             date = wp.major_axis[len(wp.major_axis) // 2]
 
-            crit1 = ('major_axis', '>=', date)
-            crit2 = ('minor_axis', '=', ['A', 'D'])
+            crit1 = ('major_axis>=date')
+            crit2 = ("minor_axis=['A', 'D']")
 
             result = store.select('wp', [crit1, crit2])
             expected = wp.truncate(before=date).reindex(minor=['A', 'D'])
             tm.assert_panel_equal(result, expected)
 
             result = store.select(
-                'wp', ['major_axis>=20000124', ('minor_axis', '=', ['A', 'B'])])
+                'wp', ['major_axis>="20000124"', ("minor_axis=['A', 'B']")])
             expected = wp.truncate(before='20000124').reindex(minor=['A', 'B'])
             tm.assert_panel_equal(result, expected)
 
@@ -2296,9 +2327,9 @@ class TestHDFStore(unittest.TestCase):
             store.put('frame', df, table=True)
             date = df.index[len(df) // 2]
 
-            crit1 = ('index', '>=', date)
-            crit2 = ('columns', ['A', 'D'])
-            crit3 = ('columns', 'A')
+            crit1 = Term('index>=date')
+            crit2 = ("columns=['A', 'D']")
+            crit3 = ('columns=A')
 
             result = store.select('frame', [crit1, crit2])
             expected = df.ix[date:, ['A', 'D']]
@@ -2318,6 +2349,62 @@ class TestHDFStore(unittest.TestCase):
             # store['frame'] = df
             # self.assertRaises(ValueError, store.select,
             #                  'frame', [crit1, crit2])
+
+    def test_frame_select_complex(self):
+        """ select via complex criteria """
+
+        df = tm.makeTimeDataFrame()
+        df['string'] = 'foo'
+        df.loc[df.index[0:4],'string'] = 'bar'
+
+        with ensure_clean(self.path) as store:
+            store.put('df', df, table=True, data_columns=['string'])
+
+            # empty
+            result = store.select('df', 'index>df.index[3] & string="bar"')
+            expected = df.loc[(df.index>df.index[3]) & (df.string=='bar')]
+            tm.assert_frame_equal(result, expected)
+
+            result = store.select('df', 'index>df.index[3] & string="foo"')
+            expected = df.loc[(df.index>df.index[3]) & (df.string=='foo')]
+            tm.assert_frame_equal(result, expected)
+
+            # or
+            result = store.select('df', 'index>df.index[3] | string="bar"')
+            expected = df.loc[(df.index>df.index[3]) | (df.string=='bar')]
+            tm.assert_frame_equal(result, expected)
+
+            result = store.select('df', '(index>df.index[3] & index<=df.index[6]) | string="bar"')
+            expected = df.loc[((df.index>df.index[3]) & (df.index<=df.index[6])) | (df.string=='bar')]
+            tm.assert_frame_equal(result, expected)
+
+            # invert
+            result = store.select('df', 'string!="bar"')
+            expected = df.loc[df.string!='bar']
+            tm.assert_frame_equal(result, expected)
+
+            # invert not implemented in numexpr :(
+            self.assertRaises(NotImplementedError, store.select, 'df', '~(string="bar")')
+
+            # invert ok for filters
+            result = store.select('df', "~(columns=['A','B'])")
+            expected = df.loc[:,df.columns-['A','B']]
+            tm.assert_frame_equal(result, expected)
+
+    def test_invalid_filtering(self):
+
+        # can't use more than one filter (atm)
+
+        df = tm.makeTimeDataFrame()
+
+        with ensure_clean(self.path) as store:
+            store.put('df', df, table=True)
+
+            # not implemented
+            self.assertRaises(NotImplementedError, store.select, 'df', "columns=['A'] | columns=['B']")
+
+            # in theory we could deal with this
+            self.assertRaises(NotImplementedError, store.select, 'df', "columns=['A','B'] & columns=['C']")
 
     def test_string_select(self):
 
@@ -2520,18 +2607,11 @@ class TestHDFStore(unittest.TestCase):
             tm.assert_frame_equal(result, expected)
 
             # multiple (diff selector)
-            try:
-                result = store.select_as_multiple(['df1', 'df2'], where=[Term(
-                            'index', '>', df2.index[4])], selector='df2')
-                expected = concat([df1, df2], axis=1)
-                expected = expected[5:]
-                tm.assert_frame_equal(result, expected)
-            except (Exception), detail:
-                print ("error in select_as_multiple %s" % str(detail))
-                print ("store: %s" % store)
-                print ("df1: %s" % df1)
-                print ("df2: %s" % df2)
-
+            result = store.select_as_multiple(['df1', 'df2'], where=[Term(
+                'index>df2.index[4]')], selector='df2')
+            expected = concat([df1, df2], axis=1)
+            expected = expected[5:]
+            tm.assert_frame_equal(result, expected)
 
             # test excpection for diff rows
             store.append('df3', tm.makeTimeDataFrame(nper=50))
@@ -2546,13 +2626,13 @@ class TestHDFStore(unittest.TestCase):
             store.append('df', df)
 
             result = store.select(
-                'df', [Term("columns", "=", ["A"])], start=0, stop=5)
+                'df', [Term("columns=['A']")], start=0, stop=5)
             expected = df.ix[0:4, ['A']]
             tm.assert_frame_equal(result, expected)
 
             # out of range
             result = store.select(
-                'df', [Term("columns", "=", ["A"])], start=30, stop=40)
+                'df', [Term("columns=['A']")], start=30, stop=40)
             assert(len(result) == 0)
             assert(type(result) == DataFrame)
 
@@ -2565,7 +2645,7 @@ class TestHDFStore(unittest.TestCase):
         with ensure_clean(self.path) as store:
             store.put('frame', df, table=True)
 
-            crit = Term('columns', df.columns[:75])
+            crit = Term('columns=df.columns[:75]')
             result = store.select('frame', [crit])
             tm.assert_frame_equal(result, df.ix[:, df.columns[:75]])
 
@@ -2644,13 +2724,12 @@ class TestHDFStore(unittest.TestCase):
             store.select('df2', typ='legacy_frame')
 
             # old version warning
-            warnings.filterwarnings('ignore', category=IncompatibilityWarning)
-            self.assertRaises(
-                Exception, store.select, 'wp1', Term('minor_axis', '=', 'B'))
+            with tm.assert_produces_warning(expected_warning=IncompatibilityWarning):
+                self.assertRaises(
+                    Exception, store.select, 'wp1', Term('minor_axis=B'))
 
-            df2 = store.select('df2')
-            store.select('df2', Term('index', '>', df2.index[2]))
-            warnings.filterwarnings('always', category=IncompatibilityWarning)
+                df2 = store.select('df2')
+                store.select('df2', Term('index>df2.index[2]'))
 
         finally:
             safe_close(store)
@@ -2816,10 +2895,13 @@ class TestHDFStore(unittest.TestCase):
     def test_unicode_index(self):
 
         unicode_values = [u'\u03c3', u'\u03c3\u03c3']
-        warnings.filterwarnings('ignore', category=PerformanceWarning)
         s = Series(np.random.randn(len(unicode_values)), unicode_values)
-        self._check_roundtrip(s, tm.assert_series_equal)
-        warnings.filterwarnings('always', category=PerformanceWarning)
+
+        if py3compat.PY3:
+            self._check_roundtrip(s, tm.assert_series_equal)
+        else:
+            with tm.assert_produces_warning(expected_warning=PerformanceWarning):
+                self._check_roundtrip(s, tm.assert_series_equal)
 
     def test_store_datetime_mixed(self):
 
