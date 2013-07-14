@@ -37,6 +37,7 @@ from pandas.core.internals import (BlockManager,
 from pandas.core.series import Series, _radd_compat
 import pandas.computation.expressions as expressions
 from pandas.computation.eval import eval as _eval
+from pandas.computation.expr import maybe_expression
 from pandas.compat.scipy import scoreatpercentile as _quantile
 from pandas.util.compat import OrderedDict
 from pandas.util import py3compat
@@ -1997,12 +1998,16 @@ class DataFrame(NDFrame):
         elif isinstance(self.columns, MultiIndex):
             return self._getitem_multilevel(key)
         else:
-            # get column
-            if self.columns.is_unique:
-                return self._get_item_cache(key)
-
-            # duplicate columns
-            return self._constructor(self._data.get(key))
+            try:
+                # get column
+                if self.columns.is_unique:
+                    return self._get_item_cache(key)
+                # duplicate columns
+                return self._constructor(self._data.get(key))
+            except KeyError:
+                if maybe_expression(key):
+                    return self.query(key)
+                raise
 
     def _getitem_slice(self, key):
         return self._slice(key, axis=0)
@@ -2060,6 +2065,89 @@ class DataFrame(NDFrame):
         return self.where(key)
 
     def query(self, expr, **kwargs):
+        """Query the columns of a frame with an expression.
+
+        Parameters
+        ----------
+        expr : string
+            The query string to evaluate. The result of the evaluation of this
+            expression is passed to
+            :meth:`~pandas.core.frame.DataFrame.__getitem__`.
+        kwargs : dict
+            See the documentation for :func:`~pandas.computation.eval.eval` for
+            complete details on the keyword arguments accepted by
+            :meth:`~pandas.core.frame.DataFrame.query`.
+
+        Returns
+        -------
+        q : DataFrame or Series
+
+        Notes
+        -----
+        This method uses the top-level :func:`~pandas.computation.eval.eval`
+        function to evaluate the passed query.
+
+        The :meth:`~pandas.core.frame.DataFrame.query` method uses a slightly
+        modified Python syntax by default. For example, the ``&`` and ``|``
+        (bitwise) operators have the precedence of their boolean cousins,
+        ``and`` and ``or``. This *is* syntactically valid Python, however the
+        semantics are different.
+
+        You can use a syntax that is semantically identical to Python by
+        passing the keyword argument ``parser='numexpr'``.
+
+        The ``index`` of the :class:`~pandas.core.frame.DataFrame` instance is
+        placed in the namespace by default, which allows you to treat the index
+        as a column in the frame. The identifier ``index`` is used for this
+        variable, and you can also use the name of the index to identify it in
+        a query.
+
+        Raises
+        ------
+        NameError
+          * if not all identifiers in the query can be found
+        SyntaxError
+          * if a syntactically *invalid* Python expression is passed
+
+        Examples
+        --------
+        Get the value of the frame where column ``b`` has values between the
+        values of columns ``a`` and ``c``.
+
+            >>> from pandas import DataFrame
+            >>> from numpy.random import randn
+            >>> df = DataFrame(randn(100, 3), columns=list('abc'))
+            >>> result = df.query('a < b & b < c')
+
+        Do the same thing but fallback on a named index if there is no column
+        with the name ``a``.
+
+            >>> from pandas import DataFrame, Index
+            >>> from numpy.random import randn
+            >>> n = 10
+            >>> index = Index(randn(n), name='a')
+            >>> df = DataFrame(randn(n, 2), index=index, columns=list('bc'))
+            >>> result = df.query('a < b & b < c')
+
+        A use case for :meth:`~pandas.core.frame.DataFrame.query` is when you
+        have a collection of :class:`~pandas.core.frame.DataFrame` s that have
+        a subset of column names in common. You can pass the same query to both
+        frames *without* having to specify which frame you're interested in
+        querying
+
+            >>> from pandas import DataFrame, Index
+            >>> from numpy.random import randn
+            >>> n = 100
+            >>> index = Index(randn(n), name='a')
+            >>> df = DataFrame(randn(n, 2), index=index, columns=list('bc'))
+            >>> df2 = DataFrame(randn(n + 10, 3))
+            >>> expr = 'a < b & b < c'
+            >>> results = map(lambda frame: frame.query(expr), [df, df2])
+
+        See Also
+        --------
+        pandas.computation.eval.eval
+        """
         resolvers = kwargs.get('resolvers', None)
         if resolvers is None:
             index_resolvers = {}
