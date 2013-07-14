@@ -1,6 +1,8 @@
 import operator as op
 
 import numpy as np
+
+import pandas as pd
 from pandas.util.py3compat import PY3
 import pandas.core.common as com
 from pandas.core.base import StringMixin
@@ -50,11 +52,16 @@ class Term(StringMixin):
         env = self.env
         key = self.name
         res = env.resolver(key)
+        self.update(res)
 
         if res is None:
             if not isinstance(key, basestring):
                 return key
             raise NameError('name {0!r} is not defined'.format(key))
+
+        if isinstance(res, pd.Panel):
+            raise NotImplementedError("Panel objects are not supported with "
+                                      "eval")
         return res
 
     def update(self, value):
