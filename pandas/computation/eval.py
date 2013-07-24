@@ -4,7 +4,7 @@ import numbers
 
 import numpy as np
 
-from pandas.computation.expr import Expr, Scope, _parsers, _ensure_scope
+from pandas.computation.expr import Expr, _parsers, _ensure_scope
 from pandas.computation.engines import _engines
 
 

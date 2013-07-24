@@ -337,7 +337,15 @@ class BaseExprVisitor(ast.NodeVisitor):
         ctx = node.ctx.__class__
         if ctx == ast.Load:
             # resolve the value
-            return getattr(self.visit(value).value, attr)
+            resolved = self.visit(value).value
+            try:
+                return getattr(resolved, attr)
+            except (AttributeError):
+
+                # something like datetime.datetime where scope is overriden
+                if isinstance(value, ast.Name) and value.id == attr:
+                    return resolved
+
         raise ValueError("Invalid Attribute context {0}".format(ctx.__name__))
 
     def visit_Call(self, node, **kwargs):

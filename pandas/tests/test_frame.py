@@ -7708,6 +7708,10 @@ class TestDataFrame(unittest.TestCase, CheckIndexing,
         assert_frame_equal(res, expec)
 
     def test_query_expressions_correct_failure(self):
+        try:
+            import numexpr as ne
+        except ImportError:
+            raise nose.SkipTest("cannot query engine numexpr when numexpr not installed")
         df = self.frame
         exprs = 'and', 'or', 'not'
         exprs += tuple(x + tm.rands(5) for x in exprs)
