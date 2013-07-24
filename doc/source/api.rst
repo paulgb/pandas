@@ -151,7 +151,7 @@ Top-level dealing with datetimes
 Top-level evaluation
 ~~~~~~~~~~~~~~~~~~~~
 
-.. currentmodule:: pandas.computation.eval
+.. currentmodule:: pandas
 
 .. autosummary::
    :toctree: generated/

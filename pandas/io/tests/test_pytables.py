@@ -172,8 +172,7 @@ class TestHDFStore(unittest.TestCase):
             df.ix[3:6,['obj1']] = np.nan
             df = df.consolidate().convert_objects()
 
-            with assert_produces_warning([PendingDeprecationWarning,
-                                          PerformanceWarning]):
+            with assert_produces_warning():
                 store['df'] = df
 
             # make a random group in hdf space
@@ -381,8 +380,7 @@ class TestHDFStore(unittest.TestCase):
         df = df.consolidate().convert_objects()
 
         with ensure_clean(self.path) as store:
-            with assert_produces_warning([PendingDeprecationWarning,
-                                          PerformanceWarning]):
+            with assert_produces_warning():
                 store.put('df',df)
             expected = store.get('df')
             tm.assert_frame_equal(expected,df)
