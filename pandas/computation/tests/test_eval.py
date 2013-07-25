@@ -29,7 +29,7 @@ from pandas.computation import pytables
 from pandas.computation.expressions import _USE_NUMEXPR
 from pandas.util.testing import (assert_frame_equal, randbool,
                                  assertRaisesRegexp,
-                                 assert_produces_warning)
+                                 assert_produces_warning, assert_series_equal)
 from pandas.util.py3compat import PY3
 
 
@@ -681,7 +681,6 @@ class TestOperations(unittest.TestCase):
                           '(df + 2)[df > 1] > 0 & (df > 0)',
                           local_dict={'df': df}, parser='python')
 
-
     def check_failing_subscript_with_name_error(self, engine):
         df = DataFrame(np.random.randn(5, 3))
         self.assertRaises(NameError, pd.eval, 'df[x > 2] > 2',
@@ -700,6 +699,23 @@ class TestOperations(unittest.TestCase):
     def test_lhs_expression_subscript(self):
         for engine in _engines:
             self.check_lhs_expression_subscript(engine)
+
+    def check_attr_expression(self, engine):
+        df = DataFrame(np.random.randn(5, 3), columns=list('abc'))
+        expr1 = 'df.a < df.b'
+        expec1 = df.a < df.b
+        expr2 = 'df.a + df.b + df.c'
+        expec2 = df.a + df.b + df.c
+        expr3 = 'df.a + df.b + df.c[df.b < 0]'
+        expec3 = df.a + df.b + df.c[df.b < 0]
+        exprs = expr1, expr2, expr3
+        expecs = expec1, expec2, expec3
+        for e, expec in zip(exprs, expecs):
+            assert_series_equal(expec, pd.eval(e, engine=engine))
+
+    def test_attr_expression(self):
+        for engine in _engines:
+            self.check_attr_expression(engine)
 
 
 _var_s = randn(10)
