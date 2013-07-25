@@ -717,6 +717,19 @@ class TestOperations(unittest.TestCase):
         for engine in _engines:
             self.check_attr_expression(engine)
 
+    def check_assignment_fails(self, engine, parser):
+        df = DataFrame(np.random.randn(5, 3), columns=list('abc'))
+        df2 = DataFrame(np.random.randn(5, 3))
+        expr1 = 'df = df2'
+        self.assertRaises(NotImplementedError, pd.eval, expr1,
+                          local_dict={'df': df, 'df2': df2}, engine=engine,
+                          parser=parser)
+
+    def test_assignment_fails(self):
+        for engine, parser in product(_engines.iterkeys(), ('pandas',
+                                                            'python')):
+            self.check_assignment_fails(engine, parser)
+
 
 _var_s = randn(10)
 

@@ -258,7 +258,7 @@ class BaseExprVisitor(ast.NodeVisitor):
         self.preparser = preparser
 
     def visit(self, node, **kwargs):
-        parse = lambda x: ast.fix_missing_locations(ast.parse(x))
+        parse = ast.parse
         if isinstance(node, basestring):
             clean = self.preparser(node)
         elif isinstance(node, ast.AST):
@@ -438,7 +438,7 @@ _numexpr_supported_calls = frozenset(_reductions + _mathops)
 @disallow((_unsupported_nodes | _python_not_supported) -
           (_boolop_nodes | frozenset(['BoolOp', 'Attribute'])))
 class PandasExprVisitor(BaseExprVisitor):
-    def __init__(self, env, preparser=_preparse):
+    def __init__(self, env, preparser=_replace_booleans):
         super(PandasExprVisitor, self).__init__(env, preparser)
 
 
