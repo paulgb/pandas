@@ -6,19 +6,18 @@ import itertools
 import tokenize
 import random
 import string
+import datetime
+
 from cStringIO import StringIO
 from functools import partial
 
 import pandas as pd
 from pandas.core.base import StringMixin
 from pandas.core import common as com
-from pandas.computation.ops import (BinOp, UnaryOp, _reductions, _mathops,
-                                    _cmp_ops_syms, _bool_ops_syms,
-                                    _arith_ops_syms, _unary_ops_syms, Term,
-                                    Constant)
-
-import pandas.lib as lib
-import datetime
+from pandas.computation.ops import (_cmp_ops_syms, _bool_ops_syms,
+                                    _arith_ops_syms, _unary_ops_syms)
+from pandas.computation.ops import _reductions, _mathops
+from pandas.computation.ops import BinOp, UnaryOp, Term, Constant
 
 
 def _ensure_scope(level=2, global_dict=None, local_dict=None, resolvers=None,
@@ -52,7 +51,7 @@ class Scope(StringMixin):
             del frame
 
         # add some useful defaults
-        self.globals['Timestamp'] = lib.Timestamp
+        self.globals['Timestamp'] = pd.lib.Timestamp
         self.globals['datetime'] = datetime
 
         # SUCH a hack
@@ -65,9 +64,10 @@ class Scope(StringMixin):
         self._resolver = None
 
     def __unicode__(self):
-        return "locals: {0}\nglobals: {0}\nresolvers: {0}".format(self.locals.keys(),
-                                                                  self.globals.keys(),
-                                                                  self.resolver_keys)
+        return com.pprint_thing("locals: {0}\nglobals: {0}\nresolvers: "
+                                "{0}".format(self.locals.keys(),
+                                             self.globals.keys(),
+                                             self.resolver_keys))
 
     def __getitem__(self, key):
         return self.locals.get(key,self.globals[key])
@@ -120,12 +120,12 @@ def _rewrite_assign(source):
     return tokenize.untokenize(res)
 
 
-def _parenthesize_booleans(source):
+def _replace_booleans(source):
     return source.replace('|', ' or ').replace('&', ' and ')
 
 
 def _preparse(source):
-    return _parenthesize_booleans(_rewrite_assign(source))
+    return _replace_booleans(_rewrite_assign(source))
 
 
 
@@ -162,16 +162,15 @@ _alias_nodes = _filter_nodes(ast.alias)
 _hacked_nodes = frozenset(['Assign', 'Module', 'Expr'])
 
 
+_unsupported_expr_nodes = frozenset(['Yield', 'GeneratorExp', 'IfExp',
+                                     'DictComp', 'SetComp', 'Repr', 'Lambda',
+                                     'Set', 'In', 'NotIn', 'AST', 'Is',
+                                     'IsNot'])
+
 # these nodes are low priority or won't ever be supported (e.g., AST)
 _unsupported_nodes = ((_stmt_nodes | _mod_nodes | _handler_nodes |
                        _arguments_nodes | _keyword_nodes | _alias_nodes |
-                       _expr_context_nodes | frozenset(['Yield',
-                                                        'GeneratorExp',
-                                                        'IfExp', 'DictComp',
-                                                        'SetComp', 'Repr',
-                                                        'Lambda', 'Set', 'In',
-                                                        'NotIn', 'AST', 'Is',
-                                                        'IsNot'])) -
+                       _expr_context_nodes | _unsupported_expr_nodes) -
                       _hacked_nodes)
 
 # we're adding a different assignment in some cases to be equality comparison
@@ -430,7 +429,6 @@ class PandasExprVisitor(BaseExprVisitor):
 class PythonExprVisitor(BaseExprVisitor):
     def __init__(self, env, preparser=lambda x: x):
         super(PythonExprVisitor, self).__init__(env, preparser=preparser)
-
 
 
 class Expr(StringMixin):
