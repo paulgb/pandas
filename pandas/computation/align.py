@@ -100,7 +100,7 @@ def _align_core(terms):
     term_index = [i for i, term in enumerate(terms) if hasattr(term.value,
                                                                'axes')]
     term_dims = [terms[i].value.ndim for i in term_index]
-    ndims = pd.Series(dict(zip(term_index, term_dims)))
+    ndims = pd.Series(dict(izip(term_index, term_dims)))
 
     # initial axes are the axes of the largest-axis'd term
     biggest = terms[ndims.idxmax()].value
