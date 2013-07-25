@@ -4,8 +4,6 @@ import sys
 import inspect
 import itertools
 import tokenize
-import random
-import string
 import datetime
 
 from cStringIO import StringIO
@@ -35,6 +33,7 @@ class Scope(StringMixin):
         self.resolvers = resolvers or []
         self.globals = dict()
         self.locals = dict()
+        self.ntemps = 0
 
         if isinstance(lcls, Scope):
             ld, lcls = lcls, dict()
@@ -110,6 +109,23 @@ class Scope(StringMixin):
         finally:
             del frame
             del frames
+
+    def add_tmp(self, value, where='locals'):
+        d = getattr(self, where, None)
+
+        if d is None:
+            raise AttributeError("Cannot add value to non-existent scope "
+                                 "{0!r}".format(where))
+        if not isinstance(d, dict):
+            raise TypeError("Cannot add value to object of type {0!r}, "
+                            "scope must be a dictionary"
+                            "".format(d.__class__.__name__))
+        name = 'tmp_var_{0}_{1}'.format(self.ntemps, pd.util.testing.rands(10))
+        d[name] = value
+
+        # only increment if the variable gets put in the scope
+        self.ntemps += 1
+        return name
 
 
 def _rewrite_assign(source):
@@ -294,7 +310,6 @@ class BaseExprVisitor(ast.NodeVisitor):
         return self.visit(node.value)
 
     def visit_Subscript(self, node, **kwargs):
-        from pandas.util.testing import rands
         value = self.visit(node.value)
         slobj = self.visit(node.slice)
         expr = com.pprint_thing(slobj)
@@ -302,14 +317,15 @@ class BaseExprVisitor(ast.NodeVisitor):
                          global_dict=self.env.globals,
                          resolvers=self.env.resolvers)
         try:
-            v = value.value[result]  # should always be Term
+            # a Term instance
+            v = value.value[result]
         except AttributeError:
+            # an Op instance
             lhs = pd.eval(com.pprint_thing(value), local_dict=self.env.locals,
                           global_dict=self.env.globals,
                           resolvers=self.env.resolvers)
             v = lhs[result]
-        name = random.choice(string.ascii_letters + '_') + rands(100)
-        self.env.locals[name] = v
+        name = self.env.add_tmp(v)
         return Term(name, env=self.env)
 
     def visit_Slice(self, node, **kwargs):
@@ -335,14 +351,15 @@ class BaseExprVisitor(ast.NodeVisitor):
         attr = node.attr
         value = node.value
 
-        ctx = node.ctx.__class__
-        if ctx == ast.Load:
+        ctx = node.ctx
+        if isinstance(ctx, ast.Load):
             # resolve the value
             resolved = self.visit(value).value
             try:
-                return getattr(resolved, attr)
-            except (AttributeError):
-
+                v = getattr(resolved, attr)
+                name = self.env.add_tmp(v)
+                return Term(name, self.env)
+            except AttributeError:
                 # something like datetime.datetime where scope is overriden
                 if isinstance(value, ast.Name) and value.id == attr:
                     return resolved
@@ -419,7 +436,7 @@ _numexpr_supported_calls = frozenset(_reductions + _mathops)
 
 
 @disallow((_unsupported_nodes | _python_not_supported) -
-          (_boolop_nodes | frozenset(['BoolOp'])))
+          (_boolop_nodes | frozenset(['BoolOp', 'Attribute'])))
 class PandasExprVisitor(BaseExprVisitor):
     def __init__(self, env, preparser=_preparse):
         super(PandasExprVisitor, self).__init__(env, preparser)
