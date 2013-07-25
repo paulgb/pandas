@@ -374,6 +374,25 @@ class ExprVisitor(BaseExprVisitor):
             raise ValueError("cannot subscript {0!r} with "
                             "{1!r}".format(value, slobj))
 
+    def visit_Attribute(self, node, **kwargs):
+        attr = node.attr
+        value = node.value
+
+        ctx = node.ctx.__class__
+        if ctx == ast.Load:
+            # resolve the value
+            resolved = self.visit(value).value
+            try:
+                return getattr(resolved, attr)
+            except AttributeError:
+
+                # something like datetime.datetime where scope is overriden
+                if isinstance(value, ast.Name) and value.id == attr:
+                    return resolved
+
+        raise ValueError("Invalid Attribute context {0}".format(ctx.__name__))
+
+
 class Expr(expr.Expr):
 
     """ hold a pytables like expression, comprised of possibly multiple 'terms'
