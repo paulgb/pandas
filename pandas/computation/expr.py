@@ -4,9 +4,12 @@ import sys
 import inspect
 import itertools
 import tokenize
+import random
+import string
 from cStringIO import StringIO
 from functools import partial
 
+import pandas as pd
 from pandas.core.base import StringMixin
 from pandas.core import common as com
 from pandas.computation.ops import (BinOp, UnaryOp, _reductions, _mathops,
@@ -117,17 +120,8 @@ def _rewrite_assign(source):
     return tokenize.untokenize(res)
 
 
-def _parenthesize_booleans(source, ops='|&'):
-    res = source
-    for op in ops:
-        terms = res.split(op)
-
-        t = []
-        for term in terms:
-            t.append('({0})'.format(term))
-
-        res = op.join(t)
-    return res
+def _parenthesize_booleans(source):
+    return source.replace('|', ' or ').replace('&', ' and ')
 
 
 def _preparse(source):
@@ -301,15 +295,23 @@ class BaseExprVisitor(ast.NodeVisitor):
         return self.visit(node.value)
 
     def visit_Subscript(self, node, **kwargs):
-        """ df.index[4:6] """
+        from pandas.util.testing import rands
         value = self.visit(node.value)
         slobj = self.visit(node.slice)
-
+        expr = com.pprint_thing(slobj)
+        result = pd.eval(expr, local_dict=self.env.locals,
+                         global_dict=self.env.globals,
+                         resolvers=self.env.resolvers)
         try:
-            return Constant(value[slobj], self.env)
-        except TypeError:
-            raise ValueError("cannot subscript [{0}] with "
-                             "[{1}]".format(value, slobj))
+            v = value.value[result]  # should always be Term
+        except AttributeError:
+            lhs = pd.eval(com.pprint_thing(value), local_dict=self.env.locals,
+                          global_dict=self.env.globals,
+                          resolvers=self.env.resolvers)
+            v = lhs[result]
+        name = random.choice(string.ascii_letters + '_') + rands(100)
+        self.env.locals[name] = v
+        return Term(name, env=self.env)
 
     def visit_Slice(self, node, **kwargs):
         """ df.index[slice(4,6)] """
@@ -412,20 +414,23 @@ class BaseExprVisitor(ast.NodeVisitor):
         return reduce(visitor, operands)
 
 
-_python_not_supported = frozenset(['Assign', 'Str', 'Slice', 'Index',
-                                   'Subscript', 'Tuple', 'List', 'Dict',
-                                   'Call'])
+_python_not_supported = frozenset(['Assign', 'Str', 'Tuple', 'List', 'Dict',
+                                   'Call', 'BoolOp'])
 _numexpr_supported_calls = frozenset(_reductions + _mathops)
 
-@disallow((_unsupported_nodes | _python_not_supported) - _boolop_nodes)
+
+@disallow((_unsupported_nodes | _python_not_supported) -
+          (_boolop_nodes | frozenset(['BoolOp'])))
 class PandasExprVisitor(BaseExprVisitor):
     def __init__(self, env, preparser=_preparse):
         super(PandasExprVisitor, self).__init__(env, preparser)
 
 
-@disallow(_unsupported_nodes | _python_not_supported)
+@disallow(_unsupported_nodes | _python_not_supported | frozenset(['Not']))
 class PythonExprVisitor(BaseExprVisitor):
-    pass
+    def __init__(self, env, preparser=lambda x: x):
+        super(PythonExprVisitor, self).__init__(env, preparser=preparser)
+
 
 
 class Expr(StringMixin):

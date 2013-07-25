@@ -365,6 +365,14 @@ class ExprVisitor(BaseExprVisitor):
     def visit_Index(self, node, **kwargs):
         return self.visit(node.value).value
 
+    def visit_Subscript(self, node, **kwargs):
+        value = self.visit(node.value)
+        slobj = self.visit(node.slice)
+        try:
+            return Constant(value[slobj], self.env)
+        except TypeError:
+            raise ValueError("cannot subscript {0!r} with "
+                            "{1!r}".format(value, slobj))
 
 class Expr(expr.Expr):
 

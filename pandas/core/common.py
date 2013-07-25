@@ -1531,7 +1531,7 @@ def is_bool(obj):
 
 
 def is_string(obj):
-    return isinstance(obj, (basestring, np.str_, np.unicode_))
+    return isinstance(obj, basestring)
 
 
 def is_series(obj):
