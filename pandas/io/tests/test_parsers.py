@@ -2121,6 +2121,14 @@ a,b,c
         self.assertRaises(ValueError, self.read_csv, StringIO(data),
                           names=['a', 'b'], usecols=[1], header=None)
 
+    def test_usecols_explicit_index_col(self):
+        # 4201
+        data = 'SecId,Time,Price,P2,P3\n10000,2013-5-11,100,10,1\n500,2013-5-12,101,11,1'
+
+        result = read_csv(StringIO(data), usecols=['Time', 'Price'], parse_dates=True, index_col=0)
+
+        self.assertEqual(result.index.name, 'Time')
+
     def test_usecols_implicit_index_col(self):
         # #2654
         data = 'a,b,c\n4,apple,bat,5.7\n8,orange,cow,10'
